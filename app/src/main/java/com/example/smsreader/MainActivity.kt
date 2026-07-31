@@ -8,7 +8,6 @@ import android.provider.Telephony
 import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -26,7 +25,6 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        enableEdgeToEdge()
 
         val log = StringBuilder()
         fun addLog(s: String) {
@@ -40,7 +38,7 @@ class MainActivity : ComponentActivity() {
             var hasPermission by remember { mutableStateOf(false) }
 
             LaunchedEffect(Unit) {
-                addLog("App启动, Android SDK=${android.os.Build.VERSION.SDK_INT}")
+                addLog("App启动, SDK=${android.os.Build.VERSION.SDK_INT}")
 
                 hasPermission = ContextCompat.checkSelfPermission(
                     this@MainActivity,
@@ -49,7 +47,7 @@ class MainActivity : ComponentActivity() {
                 addLog("权限: ${if (hasPermission) "已授权" else "未授权"}")
 
                 if (!hasPermission) {
-                    addLog("等待用户授权...")
+                    addLog("等待授权...")
                     logText = log.toString()
                     return@LaunchedEffect
                 }
@@ -59,18 +57,18 @@ class MainActivity : ComponentActivity() {
                         val items = mutableListOf<Map<String, String>>()
                         var cursor: Cursor? = null
                         try {
-                            addLog("查询短信数据库...")
+                            addLog("查询短信...")
                             cursor = contentResolver.query(
                                 Telephony.Sms.CONTENT_URI,
                                 arrayOf("_id", "address", "body", "date", "type"),
                                 null, null,
                                 "date DESC LIMIT 50"
                             )
-                            addLog("cursor=${if (cursor != null) "OK" else "null"}")
+                            addLog("cursor=${if (cursor != null) "有" else "无"}")
 
                             cursor?.use { c ->
                                 val cnt = c.count
-                                addLog("共 $cnt 条短信")
+                                addLog("短信数: $cnt")
                                 while (c.moveToNext()) {
                                     items.add(
                                         mapOf(
@@ -83,9 +81,9 @@ class MainActivity : ComponentActivity() {
                                     )
                                 }
                             }
-                            addLog("成功读取 ${items.size} 条")
+                            addLog("读取完成: ${items.size}条")
                         } catch (e: Throwable) {
-                            addLog("异常: ${e.javaClass.simpleName}: ${e.message}")
+                            addLog("读短信异常: ${e.javaClass.simpleName}: ${e.message}")
                         }
                         items
                     }
@@ -98,6 +96,7 @@ class MainActivity : ComponentActivity() {
 
             MaterialTheme {
                 if (smsItems.isEmpty()) {
+                    // 调试界面
                     Surface(
                         modifier = Modifier.fillMaxSize(),
                         color = MaterialTheme.colorScheme.background
@@ -106,11 +105,6 @@ class MainActivity : ComponentActivity() {
                             modifier = Modifier
                                 .fillMaxSize()
                                 .padding(16.dp)
-                                .windowInsetsPadding(
-                                    WindowInsets.systemBars.only(
-                                        WindowInsetsSides.Horizontal + WindowInsetsSides.Top
-                                    )
-                                )
                         ) {
                             Text("调试日志", style = MaterialTheme.typography.headlineSmall)
                             Spacer(Modifier.height(8.dp))
@@ -128,9 +122,10 @@ class MainActivity : ComponentActivity() {
                         }
                     }
                 } else {
+                    // 短信列表
                     Scaffold(
                         topBar = {
-                            TopAppBar(title = { Text("短信列表 (${smsItems.size}条)") })
+                            TopAppBar(title = { Text("短信 (${smsItems.size}条)") })
                         }
                     ) { padding ->
                         LazyColumn(
@@ -158,7 +153,7 @@ class MainActivity : ComponentActivity() {
             }
         }
 
-        // 请求权限
+        // 权限请求
         if (ContextCompat.checkSelfPermission(
                 this, Manifest.permission.READ_SMS
             ) != PackageManager.PERMISSION_GRANTED
