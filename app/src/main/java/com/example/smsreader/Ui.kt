@@ -83,27 +83,29 @@ fun Context.swipeWrap(row: View, onDelete: () -> Unit): FrameLayout {
         when (e.action) {
             MotionEvent.ACTION_DOWN -> {
                 startX = e.rawX; startY = e.rawY; startTx = row.translationX; tracking = false
-                true
+                false
             }
             MotionEvent.ACTION_MOVE -> {
                 val dx = e.rawX - startX; val dy = e.rawY - startY
                 if (!tracking && (kotlin.math.abs(dx) > dp(8) || kotlin.math.abs(dy) > dp(8))) tracking = true
-                if (tracking && kotlin.math.abs(dx) > kotlin.math.abs(dy) && dx < 0) {
+                if (tracking && kotlin.math.abs(dx) > kotlin.math.abs(dy)) {
                     frame.parent?.requestDisallowInterceptTouchEvent(true)
                     row.translationX = (startTx + dx).coerceIn(-trashW.toFloat(), 0f)
-                }
-                true
+                    true
+                } else false
             }
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
                 frame.parent?.requestDisallowInterceptTouchEvent(false)
                 if (tracking) {
                     val snapOpen = row.translationX < -trashW / 3
                     row.animate().translationX(if (snapOpen) -trashW.toFloat() else 0f)
+                    true
                 } else if (startTx < -1) {
                     row.animate().translationX(0f)
+                    true
+                } else {
+                    false
                 }
-                tracking = false
-                true
             }
             else -> false
         }

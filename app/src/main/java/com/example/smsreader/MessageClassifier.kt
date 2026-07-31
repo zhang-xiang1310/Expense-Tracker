@@ -24,14 +24,8 @@ object MessageClassifier {
     )
     private val pickupRegex = Regex("""取件码[：:\s]*(\S+)""")
     private val dateRegex = Regex("""(\d{1,2})月(\d{1,2})[日号]""")
+    private val timeRegex = Regex("""(\d{1,2}):(\d{2})(?::(\d{2}))?""")
 
-    // 分类原型
-    private val prototypes = mapOf(
-        "工资" to listOf("您的工资已到账", "工资收入", "薪资发放到账", "您的账户收入工资"),
-        "转账" to listOf("转账汇款到账", "向他行转账支出", "跨行转账转出", "转账收入到账"),
-        "伙食" to listOf("餐饮消费支出", "外卖订单支付", "餐厅消费扣款", "食堂刷卡消费"),
-        "其他" to listOf("网上消费支付", "快捷支付扣款", "代扣缴费支出", "银联消费支出"),
-    )
     private val incomeKw = listOf("收入", "存入", "到账", "汇入", "转入", "工资", "退款", "报销")
     private val expenseKw = listOf("消费", "支付", "扣款", "支出", "缴费", "取款", "转出", "代扣")
 
@@ -48,6 +42,58 @@ object MessageClassifier {
         val bank = extractBank(text) ?: return null
         val amt = extractAmount(text) ?: return null
         return BillInfo(bank, amt, text)
+    }
+
+    /** 从短信正文提取时间，返回毫秒时间戳，失败返回 null */
+    fun extractTime(body: String): Long? {
+        val cal = java.util.Calendar.getInstance()
+        val now = cal.timeInMillis
+
+        // 1. 尝试匹配完整日期时间: "8月15日 14:30" 或 "8月15日14:30"
+        val dateTimeRegex = Regex("""(\d{1,2})\s*月\s*(\d{1,2})\s*[日号]\s*(\d{1,2}):(\d{2})""")
+        dateTimeRegex.find(body)?.let { m ->
+            val month = m.groupValues[1].toIntOrNull() ?: return@let
+            val day = m.groupValues[2].toIntOrNull() ?: return@let
+            val hour = m.groupValues[3].toIntOrNull() ?: return@let
+            val min = m.groupValues[4].toIntOrNull() ?: return@let
+            if (month in 1..12 && day in 1..31 && hour in 0..23 && min in 0..59) {
+                cal.set(cal.get(java.util.Calendar.YEAR), month - 1, day, hour, min, 0)
+                cal.set(java.util.Calendar.MILLISECOND, 0)
+                val result = cal.timeInMillis
+                if (result > now + 86400000) cal.set(java.util.Calendar.YEAR, cal.get(java.util.Calendar.YEAR) - 1)
+                return cal.timeInMillis
+            }
+        }
+
+        // 2. 匹配 yyyy-MM-dd HH:mm 或 yyyy/MM/dd HH:mm
+        val isoRegex = Regex("""(\d{4})[/-](\d{1,2})[/-](\d{1,2})\s+(\d{1,2}):(\d{2})""")
+        isoRegex.find(body)?.let { m ->
+            val year = m.groupValues[1].toIntOrNull() ?: return@let
+            val month = m.groupValues[2].toIntOrNull() ?: return@let
+            val day = m.groupValues[3].toIntOrNull() ?: return@let
+            val hour = m.groupValues[4].toIntOrNull() ?: return@let
+            val min = m.groupValues[5].toIntOrNull() ?: return@let
+            if (month in 1..12 && day in 1..31 && hour in 0..23 && min in 0..59) {
+                cal.set(year, month - 1, day, hour, min, 0)
+                cal.set(java.util.Calendar.MILLISECOND, 0)
+                return cal.timeInMillis
+            }
+        }
+
+        // 3. 只匹配时间 HH:mm（用今天的日期）
+        timeRegex.find(body)?.let { m ->
+            val hour = m.groupValues[1].toIntOrNull() ?: return@let
+            val min = m.groupValues[2].toIntOrNull() ?: return@let
+            if (hour in 0..23 && min in 0..59) {
+                cal.set(java.util.Calendar.HOUR_OF_DAY, hour)
+                cal.set(java.util.Calendar.MINUTE, min)
+                cal.set(java.util.Calendar.SECOND, 0)
+                cal.set(java.util.Calendar.MILLISECOND, 0)
+                return cal.timeInMillis
+            }
+        }
+
+        return null
     }
 
     fun extractEventDate(title: String, body: String): Long? {
@@ -120,8 +166,8 @@ object MessageClassifier {
     }
 
     /** 预计算原型向量，由 Listener 在 embedder 就绪后调用一次 */
-    fun initPrototypes(embed: (String) -> FloatArray) {
-        protoVecs = prototypes.mapValues { (_, texts) -> texts.map { embed(it) } }
+    fun initPrototypes(embed: (String) -> FloatArray, kwMap: Map<String, List<String>>) {
+        protoVecs = kwMap.mapValues { (_, texts) -> texts.map { embed(it) } }
     }
 
     private fun cosineSim(a: FloatArray, b: FloatArray): Float {

@@ -1,6 +1,7 @@
 package com.example.smsreader
 
 import android.app.AlertDialog
+import android.content.Intent
 import android.graphics.Typeface
 import android.os.Bundle
 import android.view.Gravity
@@ -56,6 +57,14 @@ class SpendingDetailActivity : AppCompatActivity() {
         list.addView(sectionTitle("本年统计"))
         list.addView(spacer(0, dp(8)))
         list.addView(yearSummaryCard())
+
+        list.addView(spacer(0, dp(16)))
+        list.addView(TextView(this).apply {
+            text = "查看历史账单  >"
+            textSize = 14f; setTextColor(0xFF1976D2.toInt())
+            gravity = Gravity.CENTER
+            setOnClickListener { startActivity(Intent(this@SpendingDetailActivity, BillHistoryActivity::class.java)) }
+        })
 
         return ScrollView(this).apply { addView(list) }
     }

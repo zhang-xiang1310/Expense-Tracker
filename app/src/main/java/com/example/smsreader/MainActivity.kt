@@ -1,33 +1,31 @@
 package com.example.smsreader
 
-import android.Manifest
 import android.content.Intent
-import android.content.pm.PackageManager
 import android.graphics.Typeface
+import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
-import android.provider.Telephony
 import android.view.Gravity
+import android.widget.EditText
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
-import androidx.core.content.ContextCompat
 import java.text.SimpleDateFormat
 import java.util.*
 
 class MainActivity : AppCompatActivity() {
 
     private lateinit var totalText: TextView
+    private lateinit var cardSubtitle: TextView
     private lateinit var db: SmsDbHelper
     private lateinit var eventRows: LinearLayout
     private lateinit var pkgRows: LinearLayout
     private lateinit var smsRows: LinearLayout
+    private var smsExpanded = true
+    private var eventExpanded = true
+    private var pkgExpanded = true
     private val fmt = SimpleDateFormat("M月d日", Locale.CHINA)
-
-    private val smsPermLauncher = registerForActivityResult(
-        ActivityResultContracts.RequestPermission()
-    ) { granted -> if (granted) readSmsFromInbox() }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -38,22 +36,15 @@ class MainActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         reloadFundsCard()
+        buildEventRows()
+        buildPkgRows()
     }
 
     private fun reloadFundsCard() {
         val cards = db.queryAllBankCards()
         val total = cards.sumOf { it.balance }
         totalText.text = String.format("¥ %,.2f", total)
-        val cardCount = cards.size
-        // update subtitle
-        (totalText.parent as? android.view.ViewGroup)?.let { card ->
-            for (i in 0 until card.childCount) {
-                val child = card.getChildAt(i)
-                if (child is android.widget.TextView && child.text.toString().contains("张银行卡")) {
-                    child.text = "${cardCount}张银行卡 · 查看详情  >"
-                }
-            }
-        }
+        cardSubtitle.text = "${cards.size}张银行卡 · 查看详情  >"
     }
 
     // ═══════════════════════════════════════════
@@ -67,131 +58,121 @@ class MainActivity : AppCompatActivity() {
         }
 
         // 标题栏
-        list.addView(LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-
-            addView(TextView(this@MainActivity).apply {
-                text = "大傻春"
-                textSize = 22f
-                setTextColor(0xFF212121.toInt())
-                setTypeface(null, Typeface.BOLD)
-            }, LinearLayout.LayoutParams(0, -2, 1f))
-
-            addView(TextView(this@MainActivity).apply {
-                text = "收支  >"
-                textSize = 13f
-                setTextColor(0xFF1976D2.toInt())
-                setOnClickListener {
-                    startActivity(Intent(this@MainActivity, SpendingDetailActivity::class.java))
-                }
-            })
+        list.addView(TextView(this@MainActivity).apply {
+            text = "大傻春"
+            textSize = 22f
+            setTextColor(0xFF212121.toInt())
+            setTypeface(null, Typeface.BOLD)
         })
         list.addView(spacer(0, dp(16)))
 
-        // 总资金卡片
-        list.addView(fundsCard())
+        // 圆形头像
+        list.addView(ImageView(this@MainActivity).apply {
+            setImageResource(R.drawable.agent)
+            scaleType = ImageView.ScaleType.CENTER_CROP
+            clipToOutline = true
+            outlineProvider = object : android.view.ViewOutlineProvider() {
+                override fun getOutline(view: android.view.View, outline: android.graphics.Outline) {
+                    outline.setOval(0, 0, view.width, view.height)
+                }
+            }
+            setOnClickListener {
+                startActivity(Intent(this@MainActivity, SpendingDetailActivity::class.java))
+            }
+        }, LinearLayout.LayoutParams(dp(80), dp(80)).apply { gravity = Gravity.CENTER })
+        list.addView(spacer(0, dp(12)))
+
+        // 余额
+        val cards = db.queryAllBankCards()
+        val total = cards.sumOf { it.balance }
+        totalText = TextView(this@MainActivity).apply {
+            text = String.format("¥ %,.2f", total)
+            textSize = 28f
+            setTextColor(0xFF212121.toInt())
+            setTypeface(null, Typeface.BOLD)
+            gravity = Gravity.CENTER
+        }
+        list.addView(totalText)
+
+        // 银行卡信息文字
+        list.addView(TextView(this@MainActivity).apply {
+            text = "${cards.size}张银行卡 · 查看详情  >"
+            textSize = 13f
+            setTextColor(0xFF1976D2.toInt())
+            gravity = Gravity.CENTER
+            setPadding(0, dp(4), 0, 0)
+            setOnClickListener {
+                startActivity(Intent(this@MainActivity, BankCardActivity::class.java))
+            }
+        }.also { cardSubtitle = it })
         list.addView(spacer(0, dp(20)))
 
-        // 短信列表
+        // 快捷入口
         list.addView(LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            addView(sectionTitle("短信"), LinearLayout.LayoutParams(0, -2, 1f))
+            gravity = Gravity.CENTER
             addView(TextView(this@MainActivity).apply {
-                text = "读取短信"
-                textSize = 13f
-                setTextColor(0xFF1976D2.toInt())
-                setPadding(dp(8), dp(4), dp(4), dp(4))
-                setOnClickListener {
-                    if (ContextCompat.checkSelfPermission(this@MainActivity, Manifest.permission.READ_SMS)
-                        == PackageManager.PERMISSION_GRANTED) {
-                        readSmsFromInbox()
-                    } else {
-                        smsPermLauncher.launch(Manifest.permission.READ_SMS)
-                    }
-                }
+                text = "词库管理  >"
+                textSize = 12f; setTextColor(0xFF757575.toInt())
+                setPadding(0, 0, dp(24), 0)
+                setOnClickListener { startActivity(Intent(this@MainActivity, CategoryManageActivity::class.java)) }
+            })
+            addView(TextView(this@MainActivity).apply {
+                text = "历史账单  >"
+                textSize = 12f; setTextColor(0xFF757575.toInt())
+                setOnClickListener { startActivity(Intent(this@MainActivity, BillHistoryActivity::class.java)) }
             })
         })
+
+        // 短信列表
+        val smsTitle = sectionTitle("短信 ▼")
+        list.addView(smsTitle)
         smsRows = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         list.addView(smsRows)
         buildSmsRows()
+        smsTitle.setOnClickListener {
+            smsExpanded = !smsExpanded
+            smsTitle.text = if (smsExpanded) "短信 ▼" else "短信 ▶"
+            smsRows.visibility = if (smsExpanded) android.view.View.VISIBLE else android.view.View.GONE
+        }
 
         list.addView(spacer(0, dp(20)))
 
         // 事件提醒列表
+        val eventTitle = sectionTitle("事件提醒 ▼")
         list.addView(LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            addView(sectionTitle("事件提醒"), LinearLayout.LayoutParams(0, -2, 1f))
-            addView(TextView(this@MainActivity).apply {
-                text = "查看全部  >"
-                textSize = 13f
-                setTextColor(0xFF1976D2.toInt())
-                setOnClickListener {
-                    startActivity(Intent(this@MainActivity, EventDetailActivity::class.java))
-                }
-            })
+            addView(eventTitle, LinearLayout.LayoutParams(0, -2, 1f))
         })
         eventRows = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         list.addView(eventRows)
         buildEventRows()
+        eventTitle.setOnClickListener {
+            eventExpanded = !eventExpanded
+            eventTitle.text = if (eventExpanded) "事件提醒 ▼" else "事件提醒 ▶"
+            eventRows.visibility = if (eventExpanded) android.view.View.VISIBLE else android.view.View.GONE
+        }
 
         list.addView(spacer(0, dp(20)))
 
         // 包裹提醒列表
+        val pkgTitle = sectionTitle("包裹提醒 ▼")
         list.addView(LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            addView(sectionTitle("包裹提醒"), LinearLayout.LayoutParams(0, -2, 1f))
-            addView(TextView(this@MainActivity).apply {
-                text = "查看全部  >"
-                textSize = 13f
-                setTextColor(0xFF1976D2.toInt())
-                setOnClickListener {
-                    startActivity(Intent(this@MainActivity, PackageDetailActivity::class.java))
-                }
-            })
+            addView(pkgTitle, LinearLayout.LayoutParams(0, -2, 1f))
         })
         pkgRows = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         list.addView(pkgRows)
         buildPkgRows()
+        pkgTitle.setOnClickListener {
+            pkgExpanded = !pkgExpanded
+            pkgTitle.text = if (pkgExpanded) "包裹提醒 ▼" else "包裹提醒 ▶"
+            pkgRows.visibility = if (pkgExpanded) android.view.View.VISIBLE else android.view.View.GONE
+        }
 
         return ScrollView(this).apply { addView(list) }
-    }
-
-    private fun fundsCard(): LinearLayout {
-        val cards = db.queryAllBankCards()
-        val total = cards.sumOf { it.balance }
-        return LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(20), dp(20), dp(20), dp(20))
-            background = roundRect(0xFF2196F3.toInt(), dp(16))
-            elevation = dp(3).toFloat()
-            setOnClickListener {
-                startActivity(Intent(this@MainActivity, BankCardActivity::class.java))
-            }
-
-            addView(TextView(this@MainActivity).apply {
-                text = "总资金"
-                textSize = 14f
-                setTextColor(0xCCFFFFFF.toInt())
-            })
-            totalText = TextView(this@MainActivity).apply {
-                text = String.format("¥ %,.2f", total)
-                textSize = 34f
-                setTextColor(0xFFFFFFFF.toInt())
-                setTypeface(null, Typeface.BOLD)
-                setPadding(0, dp(6), 0, 0)
-            }
-            addView(totalText)
-            addView(TextView(this@MainActivity).apply {
-                text = "${cards.size}张银行卡 · 查看详情  >"
-                textSize = 13f
-                setTextColor(0x99FFFFFF.toInt())
-                setPadding(0, dp(12), 0, 0)
-            })
-        }
     }
 
     // ═══════════════════════════════════════════
@@ -237,15 +218,7 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun packageRow(name: String, status: String, desc: String, color: String): LinearLayout {
-        val dotColor = when (color) {
-            "green" -> 0xFF4CAF50.toInt()
-            "blue" -> 0xFF2196F3.toInt()
-            "orange" -> 0xFFFF9800.toInt()
-            else -> 0xFFBDBDBD.toInt()
-        }
-        val statusColor = if (color == "gray") 0xFF9E9E9E.toInt() else 0xFF212121.toInt()
-
+    private fun packageRow(name: String, desc: String): LinearLayout {
         return LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
@@ -253,7 +226,7 @@ class MainActivity : AppCompatActivity() {
             background = roundRect(0xFFFFFFFF.toInt(), dp(8))
             elevation = dp(1).toFloat()
 
-            addView(dot(dotColor))
+            addView(dot(0xFF2196F3.toInt()))
             addView(LinearLayout(this@MainActivity).apply {
                 orientation = LinearLayout.VERTICAL
                 setPadding(dp(12), 0, 0, 0)
@@ -269,11 +242,6 @@ class MainActivity : AppCompatActivity() {
                     setPadding(0, dp(2), 0, 0)
                 })
             }, LinearLayout.LayoutParams(0, -2, 1f))
-            addView(TextView(this@MainActivity).apply {
-                text = status
-                textSize = 13f
-                setTextColor(statusColor)
-            })
         }
     }
 
@@ -281,51 +249,12 @@ class MainActivity : AppCompatActivity() {
     // DB 列表构建
     // ═══════════════════════════════════════════
 
-    private fun readSmsFromInbox() {
-        val since = db.getLatestSmsDate()
-        val uri = Telephony.Sms.Inbox.CONTENT_URI
-        val proj = arrayOf("body", "date")
-        val sel = if (since > 0) "date > ?" else null
-        val selArgs = if (since > 0) arrayOf(since.toString()) else null
-
-        contentResolver.query(uri, proj, sel, selArgs, "date ASC")?.use { cursor ->
-            while (cursor.moveToNext()) {
-                val body = cursor.getString(0) ?: continue
-                val date = cursor.getLong(1)
-                if (body.isEmpty() || db.smsExists(body, date)) continue
-                db.insertSms(body, date)
-                classifySms(body, date)
-            }
-        }
-        buildSmsRows()
-    }
-
-    /** 对单条短信做分类入库，不依赖 BERT 模型 */
-    private fun classifySms(body: String, date: Long) {
-        if (MessageClassifier.isBlocked("", body)) return
-
-        MessageClassifier.extractBill("", body)?.let { bill ->
-            val result = MessageClassifier.classifyBillByKeywords(bill.rawText, bill.amount)
-            db.insertBill(bill.amount, bill.bankName, result.category, date, result.direction)
-            return
-        }
-        MessageClassifier.extractPackage("", body)?.let { pkg ->
-            db.insertPackage(pkg.company, "", date, pkg.pickupCode, "运输中", body)
-            return
-        }
-        MessageClassifier.extractEventDate("", body)?.let { eventDate ->
-            if (eventDate - date > 86400000) {
-                db.insertEvent(eventDate, body)
-            }
-        }
-    }
-
     private fun buildSmsRows() {
         smsRows.removeAllViews()
         val list = db.queryAllSms()
         if (list.isEmpty()) {
             smsRows.addView(TextView(this).apply {
-                text = "暂无短信，点击\"读取短信\"从收件箱导入"
+                text = "暂无短信"
                 textSize = 12f
                 setTextColor(0xFF9E9E9E.toInt())
                 setPadding(dp(8), dp(4), 0, 0)
@@ -339,6 +268,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun smsRow(sms: Sms): LinearLayout {
+        val timeStr = SimpleDateFormat("HH:mm", Locale.CHINA).format(Date(sms.date))
         val dateStr = fmt.format(Date(sms.date))
         val preview = sms.body.replace("\n", " ").take(60)
         return LinearLayout(this).apply {
@@ -353,11 +283,33 @@ class MainActivity : AppCompatActivity() {
                 maxLines = 2
             })
             addView(TextView(this@MainActivity).apply {
-                text = dateStr
+                text = "$dateStr  $timeStr"
                 textSize = 11f
                 setTextColor(0xFF9E9E9E.toInt())
                 setPadding(0, dp(4), 0, 0)
             })
+            setOnClickListener {
+                val fullTime = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.CHINA).format(Date(sms.date))
+                android.app.AlertDialog.Builder(this@MainActivity)
+                    .setTitle("短信详情")
+                    .setMessage("$fullTime\n\n${sms.body}")
+                    .setPositiveButton("关闭", null)
+                    .show()
+            }
+        }
+    }
+
+    private fun buildEventRows() {
+        eventRows.removeAllViews()
+        eventRows.addView(spacer(0, dp(8)))
+        val eventFmt = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.CHINA)
+        db.queryAllEvents().forEach { e ->
+            val dateStr = if (e.date > 0) eventFmt.format(Date(e.date)) else "待定"
+            val name = Regex("""【(.+?)】""").find(e.body)?.groupValues?.getOrNull(1) ?: "事件"
+            val row = eventRow(name, dateStr, e.body, eventColor(e.date))
+            row.setOnClickListener { showEventDetail(e) }
+            val swiped = swipeWrap(row) { db.deleteEvent(e.id); buildEventRows() }
+            eventRows.addView(swiped, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(6) })
         }
     }
 
@@ -367,25 +319,14 @@ class MainActivity : AppCompatActivity() {
         return when { days <= 3 -> "red"; days <= 7 -> "orange"; else -> "blue" }
     }
 
-    private fun pkgColor(status: String): String {
-        return when {
-            status.contains("签收") -> "gray"
-            status.contains("派送") -> "green"
-            status.contains("运输") -> "blue"
-            else -> "orange"
-        }
-    }
-
-    private fun buildEventRows() {
-        eventRows.removeAllViews()
-        eventRows.addView(spacer(0, dp(8)))
-        db.queryAllEvents().forEach { e ->
-            val dateStr = if (e.date > 0) fmt.format(Date(e.date)) else "待定"
-            val row = eventRow("事件", dateStr, e.body.take(20), eventColor(e.date))
-            row.setOnClickListener { showEditEventDialog(e) }
-            val swiped = swipeWrap(row) { db.deleteEvent(e.id); buildEventRows() }
-            eventRows.addView(swiped, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(6) })
-        }
+    private fun showEventDetail(e: Event) {
+        val dateStr = if (e.date > 0) SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.CHINA).format(Date(e.date)) else "待定"
+        android.app.AlertDialog.Builder(this)
+            .setTitle(dateStr)
+            .setMessage(e.body)
+            .setPositiveButton("编辑") { _, _ -> showEditEventDialog(e) }
+            .setNegativeButton("关闭", null)
+            .show()
     }
 
     private fun showEditEventDialog(e: Event) {
@@ -424,9 +365,15 @@ class MainActivity : AppCompatActivity() {
         pkgRows.removeAllViews()
         pkgRows.addView(spacer(0, dp(8)))
         db.queryAllPackages().forEach { p ->
-            val status = p.status.ifEmpty { "处理中" }
             val desc = p.description.ifEmpty { p.address.ifEmpty { "暂无信息" } }
-            val row = packageRow(p.company, status, desc, pkgColor(status))
+            val row = packageRow(p.company, desc)
+            row.setOnClickListener {
+                android.app.AlertDialog.Builder(this)
+                    .setTitle(p.company)
+                    .setMessage(p.description)
+                    .setPositiveButton("关闭", null)
+                    .show()
+            }
             val swiped = swipeWrap(row) { db.deletePackage(p.id); buildPkgRows() }
             pkgRows.addView(swiped, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(6) })
         }

@@ -47,6 +47,23 @@ data class BankCard(
     val balance: Double
 )
 
+data class MonthlyBill(
+    val id: Long = 0,
+    val year: Int,
+    val month: Int,
+    val income: Double,
+    val expense: Double,
+    val categoryJson: String = ""
+)
+
+data class AnnualBill(
+    val id: Long = 0,
+    val year: Int,
+    val income: Double,
+    val expense: Double,
+    val categoryJson: String = ""
+)
+
 // ═══════════════════════════════════
 // 数据库
 // ═══════════════════════════════════
@@ -55,7 +72,7 @@ class SmsDbHelper(context: Context) : SQLiteOpenHelper(context, DB_NAME, null, D
 
     companion object {
         const val DB_NAME = "smsreader.db"
-        const val DB_VERSION = 8
+        const val DB_VERSION = 10
     }
 
     override fun onCreate(db: SQLiteDatabase) {
@@ -102,6 +119,49 @@ class SmsDbHelper(context: Context) : SQLiteOpenHelper(context, DB_NAME, null, D
                 balance REAL
             )
         """)
+        db.execSQL("""
+            CREATE TABLE monthly_bill (
+                _id INTEGER PRIMARY KEY AUTOINCREMENT,
+                year INTEGER,
+                month INTEGER,
+                income REAL,
+                expense REAL,
+                category_json TEXT
+            )
+        """)
+        db.execSQL("""
+            CREATE TABLE annual_bill (
+                _id INTEGER PRIMARY KEY AUTOINCREMENT,
+                year INTEGER,
+                income REAL,
+                expense REAL,
+                category_json TEXT
+            )
+        """)
+        db.execSQL("""
+            CREATE TABLE category_kw (
+                _id INTEGER PRIMARY KEY AUTOINCREMENT,
+                category TEXT,
+                keyword TEXT
+            )
+        """)
+        seedDefaultKeywords(db)
+    }
+
+    private fun seedDefaultKeywords(db: SQLiteDatabase) {
+        val defaults = mapOf(
+            "工资" to listOf("您的工资已到账", "工资收入", "薪资发放到账", "您的账户收入工资"),
+            "转账" to listOf("转账汇款到账", "向他行转账支出", "跨行转账转出", "转账收入到账"),
+            "伙食" to listOf("餐饮消费支出", "外卖订单支付", "餐厅消费扣款", "食堂刷卡消费"),
+            "网费" to listOf("宽带包月扣款", "宽带费用扣除", "网费缴费成功", "宽带月租扣费", "网费充值到账", "话费充值", "话费缴纳", "手机缴费", "话费扣款"),
+            "其他" to listOf("网上消费支付", "快捷支付扣款", "代扣缴费支出", "银联消费支出"),
+        )
+        defaults.forEach { (cat, kws) ->
+            kws.forEach { kw ->
+                val v = ContentValues().apply { put("category", cat); put("keyword", kw) }
+                db.insert("category_kw", null, v)
+            }
+        }
     }
 
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
@@ -169,6 +229,9 @@ class SmsDbHelper(context: Context) : SQLiteOpenHelper(context, DB_NAME, null, D
             if (type == "收入") addBankBalance(bankName, amount)
             else deductBankBalance(bankName, amount)
         }
+        // 同步累加到月账单和年账单
+        upsertMonthlyBill(date, amount, category)
+        upsertAnnualBill(date, amount, category)
     }
 
     private fun deductBankBalance(bankName: String, amount: Double) {
@@ -348,5 +411,141 @@ class SmsDbHelper(context: Context) : SQLiteOpenHelper(context, DB_NAME, null, D
     fun updateBankCardBalance(id: Long, balance: Double) {
         val v = ContentValues().apply { put("balance", balance) }
         writableDatabase.update("bank_card", v, "_id = ?", arrayOf(id.toString()))
+    }
+
+    // ═══════════════════ monthly_bill ═══════════════════
+
+    private fun upsertMonthlyBill(billDate: Long, amount: Double, category: String) {
+        val cal = java.util.Calendar.getInstance().apply { timeInMillis = billDate }
+        val year = cal.get(java.util.Calendar.YEAR)
+        val month = cal.get(java.util.Calendar.MONTH) + 1
+        val isIncome = category == "收入"
+
+        val existing = readableDatabase.query("monthly_bill", null, "year=? AND month=?",
+            arrayOf(year.toString(), month.toString()), null, null, null)
+        if (existing.moveToFirst()) {
+            val id = existing.getLong(0)
+            val oldIncome = existing.getDouble(3)
+            val oldExpense = existing.getDouble(4)
+            val v = ContentValues().apply {
+                put("income", oldIncome + if (isIncome) amount else 0.0)
+                put("expense", oldExpense + if (isIncome) 0.0 else amount)
+            }
+            writableDatabase.update("monthly_bill", v, "_id=?", arrayOf(id.toString()))
+        } else {
+            val v = ContentValues().apply {
+                put("year", year); put("month", month)
+                put("income", if (isIncome) amount else 0.0)
+                put("expense", if (isIncome) 0.0 else amount)
+                put("category_json", "")
+            }
+            writableDatabase.insert("monthly_bill", null, v)
+        }
+        existing.close()
+    }
+
+    private fun upsertAnnualBill(billDate: Long, amount: Double, category: String) {
+        val year = java.util.Calendar.getInstance().apply { timeInMillis = billDate }
+            .get(java.util.Calendar.YEAR)
+        val isIncome = category == "收入"
+
+        val existing = readableDatabase.query("annual_bill", null, "year=?",
+            arrayOf(year.toString()), null, null, null)
+        if (existing.moveToFirst()) {
+            val id = existing.getLong(0)
+            val oldIncome = existing.getDouble(2)
+            val oldExpense = existing.getDouble(3)
+            val v = ContentValues().apply {
+                put("income", oldIncome + if (isIncome) amount else 0.0)
+                put("expense", oldExpense + if (isIncome) 0.0 else amount)
+            }
+            writableDatabase.update("annual_bill", v, "_id=?", arrayOf(id.toString()))
+        } else {
+            val v = ContentValues().apply {
+                put("year", year)
+                put("income", if (isIncome) amount else 0.0)
+                put("expense", if (isIncome) 0.0 else amount)
+                put("category_json", "")
+            }
+            writableDatabase.insert("annual_bill", null, v)
+        }
+        existing.close()
+    }
+
+    fun queryMonthlyBills(): List<MonthlyBill> {
+        val list = mutableListOf<MonthlyBill>()
+        readableDatabase.query("monthly_bill", null, null, null, null, null, "year DESC, month DESC")
+            .use { cursor ->
+                while (cursor.moveToNext()) {
+                    list.add(MonthlyBill(
+                        id = cursor.getLong(0),
+                        year = cursor.getInt(1),
+                        month = cursor.getInt(2),
+                        income = cursor.getDouble(3),
+                        expense = cursor.getDouble(4),
+                        categoryJson = cursor.getString(5) ?: ""
+                    ))
+                }
+            }
+        return list
+    }
+
+    // ═══════════════════ annual_bill ═══════════════════
+
+    fun queryAnnualBills(): List<AnnualBill> {
+        val list = mutableListOf<AnnualBill>()
+        readableDatabase.query("annual_bill", null, null, null, null, null, "year DESC")
+            .use { cursor ->
+                while (cursor.moveToNext()) {
+                    list.add(AnnualBill(
+                        id = cursor.getLong(0),
+                        year = cursor.getInt(1),
+                        income = cursor.getDouble(2),
+                        expense = cursor.getDouble(3),
+                        categoryJson = cursor.getString(4) ?: ""
+                    ))
+                }
+            }
+        return list
+    }
+
+    // ═══════════════════ category_kw ═══════════════════
+
+    fun queryCategoryKeywords(): Map<String, List<String>> {
+        val map = linkedMapOf<String, MutableList<String>>()
+        readableDatabase.query("category_kw", null, null, null, null, null, "_id ASC")
+            .use { cursor ->
+                while (cursor.moveToNext()) {
+                    map.getOrPut(cursor.getString(1)) { mutableListOf() }
+                        .add(cursor.getString(2))
+                }
+            }
+        return map
+    }
+
+    fun queryCategoryKwList(category: String): List<Pair<Long, String>> {
+        val list = mutableListOf<Pair<Long, String>>()
+        readableDatabase.query("category_kw", null, "category=?",
+            arrayOf(category), null, null, "_id ASC")
+            .use { cursor ->
+                while (cursor.moveToNext()) {
+                    list.add(Pair(cursor.getLong(0), cursor.getString(2)))
+                }
+            }
+        return list
+    }
+
+    fun insertCategoryKw(category: String, keyword: String) {
+        val v = ContentValues().apply { put("category", category); put("keyword", keyword) }
+        writableDatabase.insert("category_kw", null, v)
+    }
+
+    fun updateCategoryKw(id: Long, keyword: String) {
+        val v = ContentValues().apply { put("keyword", keyword) }
+        writableDatabase.update("category_kw", v, "_id=?", arrayOf(id.toString()))
+    }
+
+    fun deleteCategoryKw(id: Long) {
+        writableDatabase.delete("category_kw", "_id=?", arrayOf(id.toString()))
     }
 }
