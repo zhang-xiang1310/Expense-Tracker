@@ -4,76 +4,87 @@ import android.Manifest
 import android.content.pm.PackageManager
 import android.os.Bundle
 import android.provider.Telephony
-import androidx.activity.ComponentActivity
-import androidx.activity.compose.setContent
-import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
-import androidx.compose.material3.Text
-import androidx.compose.runtime.*
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.dp
+import android.widget.LinearLayout
+import android.widget.ScrollView
+import android.widget.TextView
+import android.widget.Toast
+import androidx.appcompat.app.AppCompatActivity
+import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 
-class MainActivity : ComponentActivity() {
-
-    data class Sms(val address: String, val body: String)
-
-    private val permLauncher = registerForActivityResult(
-        ActivityResultContracts.RequestPermission()
-    ) { granted -> if (granted) recreate() }
+class MainActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
+        val layout = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(32, 32, 32, 32)
+        }
+
+        val scrollView = ScrollView(this)
+        val textView = TextView(this).apply {
+            textSize = 14f
+            setLineSpacing(8f, 1f)
+        }
+        scrollView.addView(textView)
+        layout.addView(scrollView)
+        setContentView(layout)
+
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_SMS)
             != PackageManager.PERMISSION_GRANTED
         ) {
-            permLauncher.launch(Manifest.permission.READ_SMS)
-        }
-
-        val smsList = if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_SMS)
-            == PackageManager.PERMISSION_GRANTED
-        ) {
-            readSms()
+            ActivityCompat.requestPermissions(
+                this,
+                arrayOf(Manifest.permission.READ_SMS),
+                1
+            )
+            textView.text = "需要短信权限"
         } else {
-            emptyList()
-        }
-
-        setContent {
-            LazyColumn(
-                modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(16.dp)
-            ) {
-                items(smsList) { sms ->
-                    Column(Modifier.padding(vertical = 8.dp)) {
-                        Text(sms.address, fontWeight = FontWeight.Bold)
-                        Text(sms.body)
-                    }
-                }
-            }
+            loadSms(textView)
         }
     }
 
-    private fun readSms(): List<Sms> {
-        val list = mutableListOf<Sms>()
-        contentResolver.query(
-            Telephony.Sms.CONTENT_URI,
-            arrayOf("address", "body"),
-            null, null,
-            "date DESC"
-        )?.use { cursor ->
-            while (cursor.moveToNext()) {
-                list.add(
-                    Sms(
-                        cursor.getString(0) ?: "-",
-                        cursor.getString(1) ?: ""
-                    )
-                )
-            }
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == 1 && grantResults.isNotEmpty()
+            && grantResults[0] == PackageManager.PERMISSION_GRANTED
+        ) {
+            val textView = (findViewById<ScrollView>(android.R.id.content)
+                ?.getChildAt(0) as? TextView) ?: return
+            loadSms(textView)
         }
-        return list
+    }
+
+    private fun loadSms(textView: TextView) {
+        try {
+            val sb = StringBuilder()
+            var count = 0
+            contentResolver.query(
+                Telephony.Sms.CONTENT_URI,
+                arrayOf("address", "body", "date"),
+                null, null,
+                "date DESC"
+            )?.use { cursor ->
+                while (cursor.moveToNext() && count < 500) {
+                    val addr = cursor.getString(0) ?: "-"
+                    val body = cursor.getString(1) ?: ""
+                    sb.append("$addr\n$body\n\n")
+                    count++
+                }
+            }
+            if (sb.isEmpty()) {
+                textView.text = "暂无短信"
+            } else {
+                textView.text = "共 $count 条\n\n$sb"
+            }
+        } catch (e: Exception) {
+            textView.text = "读取失败: ${e.message}"
+            Toast.makeText(this, "错误: ${e.message}", Toast.LENGTH_LONG).show()
+        }
     }
 }
