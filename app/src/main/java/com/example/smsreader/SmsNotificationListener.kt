@@ -1,22 +1,23 @@
 package com.example.smsreader
 
 import android.app.Notification
-import android.content.Context
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
-import java.io.File
-import java.text.SimpleDateFormat
-import java.util.*
 
 class SmsNotificationListener : NotificationListenerService() {
 
-    companion object {
-        private const val FILE_NAME = "sms_log.txt"
-
-        fun getSavedSms(context: Context): List<String> {
-            val file = File(context.filesDir, FILE_NAME)
-            return if (file.exists()) file.readLines().reversed() else emptyList()
+    private lateinit var db: SmsDbHelper
+    private val embedder by lazy {
+        BertEmbedder(this).also {
+            if (it.isReady) {
+                MessageClassifier.initPrototypes { text -> it.embed(text) }
+            }
         }
+    }
+
+    override fun onCreate() {
+        super.onCreate()
+        db = SmsDbHelper(this)
     }
 
     override fun onNotificationPosted(sbn: StatusBarNotification?) {
@@ -28,15 +29,42 @@ class SmsNotificationListener : NotificationListenerService() {
 
         val extras = sbn.notification.extras
         val title = extras.getString(Notification.EXTRA_TITLE) ?: return
-        val text = extras.getCharSequence(Notification.EXTRA_TEXT)?.toString() ?: ""
-        if (text.isEmpty() && title.isEmpty()) return
+        val body = extras.getCharSequence(Notification.EXTRA_TEXT)?.toString() ?: ""
+        if (body.isEmpty() && title.isEmpty()) return
 
-        val time = SimpleDateFormat("MM-dd HH:mm", Locale.getDefault()).format(Date())
-        val line = "$time | $title | $text"
+        if (MessageClassifier.isBlocked(title, body)) return
 
-        val file = File(filesDir, FILE_NAME)
-        file.appendText("$line\n")
+        val rawTime = sbn.notification.`when`.let { if (it > 0) it else System.currentTimeMillis() }
+        val minuteTime = rawTime / 60000 * 60000
+        db.insertSms(body, minuteTime)
+
+        // 资金短信 → 提取银行+金额 → 嵌入分类 → 存入bill
+        MessageClassifier.extractBill(title, body)?.let { bill ->
+            val result = MessageClassifier.classifyBill(
+                embed = { embedder.embed(it) },
+                rawText = bill.rawText,
+                amount = bill.amount
+            )
+            db.insertBill(bill.amount, bill.bankName, result.category, minuteTime, result.direction)
+        } ?: MessageClassifier.extractPackage(title, body)?.let { pkg ->
+            // 包裹短信 → 提取公司+取件码 → 嵌入推断地址
+            val vec = embedder.embed(pkg.rawText)
+            // TODO: vec → 地址提取模型 → address
+            val address = ""
+            db.insertPackage(pkg.company, address, minuteTime, pkg.pickupCode, "运输中", pkg.rawText)
+        }
+
+        // 事件：文本时间超过短信发送时间1天
+        MessageClassifier.extractEventDate(title, body)?.let { eventDate ->
+            if (eventDate - minuteTime > 86400000) {
+                db.insertEvent(eventDate, body)
+            }
+        }
     }
 
     override fun onListenerConnected() {}
+    override fun onDestroy() {
+        super.onDestroy()
+        if (::embedder.isInitialized) embedder.close()
+    }
 }

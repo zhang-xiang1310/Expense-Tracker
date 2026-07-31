@@ -23,7 +23,7 @@ cd "$SAVED" >/dev/null
 APP_NAME="Gradle"
 APP_BASE_NAME=$(basename "$0")
 
-DEFAULT_JVM_OPTS='"-Xmx64m" "-Xms64m"'
+DEFAULT_JVM_OPTS='-Xmx64m -Xms64m'
 
 MAX_FD="maximum"
 
@@ -60,7 +60,7 @@ if [ ! -x "$JAVACMD" ]; then
     die "ERROR: JAVA_HOME is not set and no 'java' command could be found in your PATH."
 fi
 
-GRADLE_OPTS="${GRADLE_OPTS} \"-Dorg.gradle.appname=$APP_BASE_NAME\""
+GRADLE_OPTS="${GRADLE_OPTS} -Dorg.gradle.appname=$APP_BASE_NAME"
 
 exec "$JAVACMD" \
     $DEFAULT_JVM_OPTS \
