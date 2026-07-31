@@ -3,6 +3,7 @@ package com.example.smsreader
 import android.Manifest
 import android.content.pm.PackageManager
 import android.os.Bundle
+import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
@@ -20,14 +21,10 @@ import com.example.smsreader.ui.SmsListScreen
 class MainActivity : ComponentActivity() {
 
     private val viewModel: SmsViewModel by viewModels()
-    private var hasPermission by mutableStateOf(false)
-    private var permissionChecked by mutableStateOf(false)
 
     private val permissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { granted ->
-        hasPermission = granted
-        permissionChecked = true
         if (granted) {
             viewModel.loadSms()
         }
@@ -36,33 +33,34 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        hasPermission = ContextCompat.checkSelfPermission(
+        // 全局异常处理，防止未知异常导致直接闪退
+        val defaultHandler = Thread.getDefaultUncaughtExceptionHandler()
+        Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
+            Log.e("SmsReader", "Uncaught exception", throwable)
+            defaultHandler?.uncaughtException(thread, throwable)
+        }
+
+        val hasPermission = ContextCompat.checkSelfPermission(
             this, Manifest.permission.READ_SMS
         ) == PackageManager.PERMISSION_GRANTED
 
         if (hasPermission) {
-            permissionChecked = true
             viewModel.loadSms()
         }
 
         setContent {
+            var showPermissionScreen by remember { mutableStateOf(!hasPermission) }
+
             MaterialTheme {
-                if (!permissionChecked) {
-                    // 还没检查完权限，显示空白
-                    Box(
-                        modifier = Modifier.fillMaxSize(),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        CircularProgressIndicator()
-                    }
-                } else if (hasPermission) {
-                    SmsListScreen(viewModel)
-                } else {
+                if (showPermissionScreen) {
                     PermissionScreen(
                         onRequestPermission = {
                             permissionLauncher.launch(Manifest.permission.READ_SMS)
+                            showPermissionScreen = false
                         }
                     )
+                } else {
+                    SmsListScreen(viewModel)
                 }
             }
         }
