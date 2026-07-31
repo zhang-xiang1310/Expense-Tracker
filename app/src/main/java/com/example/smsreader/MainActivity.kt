@@ -23,6 +23,12 @@ import kotlinx.coroutines.withContext
 
 class MainActivity : ComponentActivity() {
 
+    private val permLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) recreate()
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
@@ -31,26 +37,31 @@ class MainActivity : ComponentActivity() {
             Log.d("SmsReader", s)
             log.append(s).append("\n")
         }
+        var requestPerm = false
+
+        val hasPerm = ContextCompat.checkSelfPermission(
+            this, Manifest.permission.READ_SMS
+        ) == PackageManager.PERMISSION_GRANTED
+
+        if (!hasPerm) {
+            permLauncher.launch(Manifest.permission.READ_SMS)
+            requestPerm = true
+        }
 
         setContent {
             var logLines by remember { mutableStateOf(listOf("启动中...")) }
             var smsItems by remember { mutableStateOf(listOf<Map<String, String>>()) }
 
             LaunchedEffect(Unit) {
-                addLog("App启动, SDK=${android.os.Build.VERSION.SDK_INT}")
-                addLog("设备: ${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}")
-
-                val hasPerm = ContextCompat.checkSelfPermission(
-                    this@MainActivity,
-                    Manifest.permission.READ_SMS
-                ) == PackageManager.PERMISSION_GRANTED
-                addLog("权限: ${if (hasPerm) "OK" else "无"}")
-
-                if (!hasPerm) {
-                    addLog("等待授权...")
+                if (requestPerm) {
+                    addLog("请求权限中...")
                     logLines = log.toString().split("\n").filter { it.isNotBlank() }
                     return@LaunchedEffect
                 }
+
+                addLog("App启动 SDK=${android.os.Build.VERSION.SDK_INT}")
+                addLog("设备 ${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}")
+                addLog("权限: OK")
 
                 try {
                     val list = withContext(Dispatchers.IO) {
@@ -81,15 +92,15 @@ class MainActivity : ComponentActivity() {
                                     )
                                 }
                             }
-                            addLog("成功读取 ${items.size} 条")
+                            addLog("读取: ${items.size}条")
                         } catch (e: Throwable) {
-                            addLog("读短信错误: ${e.javaClass.simpleName}: ${e.message}")
+                            addLog("读短信异常: ${e.javaClass.simpleName}: ${e.message}")
                         }
                         items
                     }
                     smsItems = list
                 } catch (e: Throwable) {
-                    addLog("外层错误: ${e.javaClass.simpleName}: ${e.message}")
+                    addLog("异常: ${e.javaClass.simpleName}: ${e.message}")
                 }
                 logLines = log.toString().split("\n").filter { it.isNotBlank() }
             }
@@ -97,7 +108,6 @@ class MainActivity : ComponentActivity() {
             MaterialTheme {
                 Surface(Modifier.fillMaxSize()) {
                     if (smsItems.isEmpty()) {
-                        // 调试界面
                         Column(Modifier.fillMaxSize().padding(16.dp)) {
                             Text("调试日志", style = MaterialTheme.typography.headlineSmall)
                             Spacer(Modifier.height(8.dp))
@@ -108,10 +118,7 @@ class MainActivity : ComponentActivity() {
                             ) {
                                 LazyColumn(Modifier.padding(12.dp)) {
                                     itemsIndexed(logLines) { _, line ->
-                                        Text(
-                                            line,
-                                            style = MaterialTheme.typography.bodySmall
-                                        )
+                                        Text(line, style = MaterialTheme.typography.bodySmall)
                                     }
                                 }
                             }
@@ -146,18 +153,6 @@ class MainActivity : ComponentActivity() {
                     }
                 }
             }
-        }
-
-        // 请求权限
-        if (ContextCompat.checkSelfPermission(
-                this, Manifest.permission.READ_SMS
-            ) != PackageManager.PERMISSION_GRANTED
-        ) {
-            registerForActivityResult(
-                ActivityResultContracts.RequestPermission()
-            ) { granted ->
-                if (granted) recreate()
-            }.launch(Manifest.permission.READ_SMS)
         }
     }
 }
